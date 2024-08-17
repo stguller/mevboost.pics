@@ -12,7 +12,19 @@ LOCATION = "data/"
 # Load infura rpc endpoint url
 with open("key/infura.txt", "r") as f:
     RPC_ENDPOINT = f.read().strip()
-    
+
+# Validator list
+validator_list = [
+    1372330, 1372331, 1372332, 1372333, 1372334, 1465979, 1465980, 1465981, 
+    1465982, 1465983, 1465984, 1465985, 1465986, 1465987, 1465988, 1465989, 
+    1465990, 1466419, 1466420, 1466421, 1489959, 1489960, 1489961, 1489962, 
+    1489963, 1489964, 1489965, 1489966, 1489967, 1489968, 1489969, 1490094, 
+    1490095, 1490096, 1490097, 1490098, 1490099, 1490100, 1490101, 1490102, 
+    1539382, 1540907, 1540908, 1540909, 1540910, 1540911, 1540912, 1540913, 
+    1540914, 1540915, 1540916, 1540917, 1540918, 1540919, 1541009, 1541010, 
+    1541011, 1541012, 1541013, 1541014
+]
+
 fb_b = ["0xa1dead01e65f0a0eee7b5170223f20c8f0cbf122eac3324d61afbdb33a8885ff8cab2ef514ac2c7698ae0d6289ef27fc",
         "0x81beef03aafd3dd33ffd7deb337407142c80fea2690e5b3190cfc01bde5753f28982a7857c96172a75a234cb7bcb994f",
         "0x81babeec8c9f2bb9c329fd8a3b176032fe0ab5f3b92a3f44d4575a231c7bd9c31d10b6328ef68ed1e8c02a3dbc8e80f9",
@@ -64,8 +76,6 @@ def get_twitter_handle(a):
         return "@builder0x69"
     return a
 
-
-    
 w3 = Web3(Web3.HTTPProvider(RPC_ENDPOINT))
 assert w3.isConnected()
 
@@ -82,16 +92,15 @@ client = tweepy.Client(
 URL = "https://beaconscan.com/slot/{}"
 URL2 = "https://beaconcha.in/slot/{}"
 
-# Tweet
+# Tweet templates
 TWEET = "High Proposer Payment Alert! 💸 \nValidator received {:,.3f} ETH\nBuilder: {}.\n" \
-            + "Slot: {:,.0f}.\nReceived through the {} relay.\n"+URL
+        + "Slot: {:,.0f}.\nReceived through the {} relay.\n" + URL
 
 TWEET_2 = "High Proposer Payment Alert! 💸 \nValidator {} received {:,.2f} ETH\nBuilder: {} ({}).\n" \
-            + "Slot: {:,.0f}.\nReceived through the {} relay.\n"+URL
+          + "Slot: {:,.0f}.\nReceived through the {} relay.\n" + URL
 
 TWEET_3 = "High Proposer Payment Alert! 💸 \nValidator {} received {:,.2f} ETH\nBlock built by a {} builder ({}) 👷‍.\n" \
-            + "Slot: {:,.0f}.\nReceived through the {} relay.\n"+URL
-
+          + "Slot: {:,.0f}.\nReceived through the {} relay.\n" + URL
 
 def get_last_file(off=0):
     # Get latest mevboost.csv file
@@ -109,100 +118,37 @@ def get_last_file(off=0):
     maxfilenr.remove(int(max_file))
     second_max = str(max(maxfilenr)+off)
     
-    return LOCATION + "mevboost_" +  max_file + ".csv", LOCATION + "mevboost_" +  second_max + ".csv",
+    return LOCATION + "mevboost_" +  max_file + ".csv", LOCATION + "mevboost_" + second_max + ".csv"
 
-def make_tweet(tweet):
-    # Send tweet
-    try:
-        print(colored(now() + f"\nsending tweet:\n{tweet}", "green"))
-        return True, client.create_tweet(text=tweet)
-    except Exception as e:
-        print(str(e))
-        return None, None
+def check_threshold(proposer_payment):
+    return proposer_payment > 0.01  # 0.01 ETH filtresi
 
-def generate_post(row):
-    block = None
-    loop_count = 0
-    while block == None and loop_count < 5:
-        try:
-            block = w3.eth.get_block(row["block_hash"])
-        except:
-            block = None
-        time.sleep(loop_count)
-        loop_count += 1
-        
-    recipient = None
-    if row.relay in ["manifold", "blocknative"]:
-        recipient = block.miner
-    else:
-        tx = block.transactions[-1]
-        try:
-            tx = w3.eth.get_transaction(tx)
-            recipient = tx.to
-        except:
-            recipient = None
-    
-    if recipient:
-        recipient = recipient.lower()[:6]+"..."
-        handle_twitter = get_twitter_handle(row["builder_pubkey"])
-        val = row["value"]/1e18
-        short_pk = row["builder_pubkey"][0:8]+"..."
-        slot_int = int(row["slot"])
-        slot_str = row["slot"]
-        if get_twitter_handle(row["builder_pubkey"]) == "anon":
-            return TWEET_2.format(recipient,
-                                  val, 
-                                  short_pk, 
-                                  handle_twitter,
-                                  slot_int, 
-                                  handle_twitter,
-                                  slot_str
-                                )
+def process_data(df):
+    for idx, row in df.iterrows():
+        if not check_threshold(row['Proposer Payment (ETH)']):
+            continue
+
+        builder_label = get_builder_label(row['Builder Pubkey'])
+        if int(row['Validator Index']) in validator_list:
+            handle = get_twitter_handle(row['Builder Pubkey'])
+            tweet_text = TWEET_2.format(row['Validator Index'], row['Proposer Payment (ETH)'], 
+                                        builder_label, handle, row['Slot'], row['Relay'])
         else:
-            return TWEET_3.format(recipient,
-                                  val, 
-                                  handle_twitter,
-                                  short_pk, 
-                                  slot_int, 
-                                  handle_twitter,
-                                  slot_str
-                                )
-            
+            tweet_text = TWEET_3.format(row['Validator Index'], row['Proposer Payment (ETH)'], 
+                                        builder_label, row['Builder Pubkey'], row['Slot'], row['Relay'])
         
+        print(colored(f"{datetime.now()}: Sending tweet: {tweet_text}", "green"))
+        # client.create_tweet(text=tweet_text)
+        time.sleep(1)
 
-    return TWEET.format(row["value"]/1e18, 
-                         row["builder_pubkey"][0:8]+"...", 
-                         int(row["slot"]), 
-                         get_twitter_handle(row["relay"]),
-                         row["slot"]
-                        )
+def main():
+    while True:
+        try:
+            df = pd.read_csv(get_last_file()[0])
+            process_data(df)
+        except Exception as e:
+            print(colored(f"Error: {str(e)}", "red"))
+        time.sleep(60)
 
-def now():
-    return datetime.strftime(datetime.now(), "%m-%d|%H:%M:%S")
-
-with open("./known_slots.txt", "r") as file:
-    posted = set(file.read().split("\n"))
-
-df = pd.DataFrame()
-for file in get_last_file():
-    print(f"opening {file}")
-    _df = pd.read_csv(file).sort_values("slot")
-    _df["value"] = _df["value"].apply(lambda x: int(x))
-    _df = _df[_df["value"] >= int(5e18)]
-    df = pd.concat([df,_df], ignore_index=True)
-
-
-df["value"] = df["value"].apply(lambda x: int(x) if x==x and x!=None else None)
-for ix, row in df[df["value"] >= int(5e18)].iterrows():
-    if str(row["slot"]) not in posted:
-        posted.add(str(row["slot"]))
-        post = generate_post(row)
-        success, resp = make_tweet(post)
-        assert success
-        print(colored("Tweet successfully sent", "green", attrs=["bold"]))
-        if len(resp.errors) > 0:
-            print(f"Response: {str(resp)}")
-        else:
-            print(f"https://twitter.com/user/status/{resp.data['id']}")
-        with open("./known_slots.txt", "a") as file:
-            file.write(str(row["slot"])+"\n")
+if __name__ == "__main__":
+    main()
