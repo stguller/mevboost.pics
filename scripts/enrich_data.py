@@ -119,7 +119,7 @@ def enrich_data(w3, df, df_txs):
 
 if __name__ == "__main__":
     w3 = Web3(Web3.HTTPProvider(RPC_ENDPOINT))
-    assert w3.isConnected()
+    assert w3.is_connected()
     try:
         df = open_enriched_file(FOLDER)
     except:
